@@ -7,11 +7,30 @@ import glob
 import os
 import traceback
 
-
-
 # =================================================================================
 #              CREATE MODEL ARENA FOR COMMON COORDINATE BEHAVIOUR
 # =================================================================================
+def calculate_triangle_corners(center, radius):
+    # Calculate the coordinates of the three corners of the equilateral triangle
+    angle = 60  # 60 degrees between each corner of the equilateral triangle
+
+    corner1 = (
+        int(center[0] + radius * np.cos(np.radians(30))),  
+        int(center[1] + radius * np.sin(np.radians(30)))  
+    )
+
+    corner2 = (
+        int(center[0] + radius * np.cos(np.radians(150))),  
+        int(center[1] + radius * np.sin(np.radians(150)))  
+    )
+
+    corner3 = (
+        int(center[0] + radius * np.cos(np.radians(270))),  
+        int(center[1] + radius * np.sin(np.radians(270)))  
+    )
+
+    return corner1, corner2, corner3
+
 def model_arena(size, show_arena=True):
     # Initialize the model arena image
     arena = np.zeros((1000, 1000), dtype=np.uint8)
@@ -21,37 +40,31 @@ def model_arena(size, show_arena=True):
     radius = 460
     cv2.circle(arena, center, radius, 255, -1)
 
-    # Shelter dimensions
-    shelter_width = 240
-    shelter_height = 70
+    # Calculate triangle corners
+    triangle_corners = calculate_triangle_corners(center, radius)
 
-    # List of top-left and bottom-right coordinates for each of the shelters
-    # Adjust these coordinates as needed for the desired locations
-    shelters = [
-        [(400, 25), (600, 75)],     # Top
-        [(25, 750), (225, 800)],   # Bottom-Left
-        [(775, 750), (975, 800)]    # Bottom-Right
-    ]
-
-    for top_left, bottom_right in shelters:
-        cv2.rectangle(arena, top_left, bottom_right, 128, -1)
+    # Draw the flipped equilateral triangle on the arena image with black lines
+    cv2.polylines(arena, [np.array(triangle_corners, np.int32)], isClosed=True, color=0, thickness=2)
 
     # For registration, convert points to the resized dimensions
-    points = [((tl[0] + br[0]) // 2, (tl[1] + br[1]) // 2) for tl, br in shelters]
-    points_resized = [(pt[0] * size[0] / 1000, pt[1] * size[1] / 1000) for pt in points]
-
-    
+    points_resized = [(pt[0] * size[0] / 1000, pt[1] * size[1] / 1000) for pt in triangle_corners]
 
     # Resize the arena to the size of your image
     model_arena = cv2.resize(arena, size)
 
     if show_arena:
-        print('we are in show_arena')
-        cv2.imshow('model arena looks like this',model_arena)
+        cv2.imshow('model arena looks like this', model_arena)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
-    return model_arena, points
+    return model_arena, points_resized
+
+if __name__ == "__main__":
+    # Change the desired size of the model arena here (e.g., (800, 800))
+    model_arena_size = (800, 800)
+    model_arena(model_arena_size)
+
+
 
 # =================================================================================
 #              REGISTER A FRAME TO THE COMMON COORDINATE FRAMEWORK
@@ -522,14 +535,30 @@ def register_arena(background, fisheye_map_location, y_offset, x_offset, show_ar
     #What it returns is essentially the regisration variable!
 
 # mouse callback function I
-def select_transform_points(event,x,y, flags, data):
+def select_transform_points(event, x, y, flags, data):
     if event == cv2.EVENT_LBUTTONDOWN:
-
         data[0] = cv2.circle(data[0], (x, y), 3, 255, -1)
         data[0] = cv2.circle(data[0], (x, y), 4, 0, 1)
-
-        clicks = np.reshape(np.array([x, y]),(1,2))
+        clicks = np.reshape(np.array([x, y]), (1, 2))
         data[1] = np.concatenate((data[1], clicks))
+
+        # Define the font for displaying the number
+        font = cv2.FONT_HERSHEY_COMPLEX  # Use FONT_HERSHEY_COMPLEX for font size control
+
+        # Define the font scale to control the font size (adjust as needed)
+        font_scale = 1.5  # Adjust the value to make the font larger or smaller
+
+        # Define the font color (in BGR format, here using blue)
+        font_color = (255, 0, 0)
+
+        # Define the font thickness (line thickness of the text)
+        font_thickness = 2
+
+        # Convert the coordinates to integers for the text position
+        text_position = (int(x) + 5, int(y) - 5)
+
+        # Add the number to the image with the specified font size, color, and position
+        cv2.putText(data[0], str(data[1].shape[0]), text_position, font, font_scale, font_color, font_thickness)
 
 # mouse callback function II
 def additional_transform_points(event,x,y, flags, data):
