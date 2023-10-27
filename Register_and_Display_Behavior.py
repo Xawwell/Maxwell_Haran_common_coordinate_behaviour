@@ -1,47 +1,45 @@
 # Import packages
 from Video_Functions import peri_stimulus_video_clip, register_arena, get_background
 from termcolor import colored
-import cv2
 
 '''
 --------------   SET PARAMETERS    --------------
 '''
 
 # file path of behaviour video to register
-video_file_path = ('/Volumes/Extreme SSD/Branco Lab/cam13.avi')
+video_file_path =r'G:\Files_from_npx_bonzai_pc\bins_and_meta\sub-003_mouseid-1119984_behaviour_2023_06_13T15_02_09\cam.avi'
+#r'G:\Files_from_npx_bonzai_pc\bins_and_meta\sub-003_mouseid-1119984_behaviour_2023_06_13T15_02_09\cam.avi'
+#r'C:\Users\Haran Shani\Downloads\Common-Coordinate-Behaviour-master\Common-Coordinate-Behaviour-master\behavior videos\CA3481_loom.mp4'
 
 # file path of behaviour clip to save
-save_file_path = '/Users/chenx/Desktop/Branco Lab/Shelter Choice Project/Maxwell-common-coordinate-behaviour/corrected_videos/'
+save_file_path = r'C:\Users\Haran Shani\Downloads\Common-Coordinate-Behaviour-master\Common-Coordinate-Behaviour-master\clips'
 
 # file path of fisheye correction -- set to an invalid location such as '' to skip fisheye correction
 # A corrective mapping for the Branco lab's typical camera is included in the repo!
-fisheye_map_location = ('/Users/chenx/Desktop/Branco Lab/Shelter Choice Project/Common-Coordinate-Behaviour-master/fisheye calibration maps/fisheye_maps.npy')
+fisheye_map_location = r'C:\Users\Haran Shani\Downloads\Common-Coordinate-Behaviour-master\Common-Coordinate-Behaviour-master\fisheye calibration maps\fisheye_maps.npy'
 
 # frame of stimulus onset
-stim_frame = 135000
+stim_frame = 300
 
 # seconds before and after stimulus to display
-window_pre = 10
-window_post = 20
+window_pre = 3
+window_post = 7
 
 # frames per second of video
 fps = 40
 
 # name of experiment
-experiment = 'Haran_Maxwell_test_footage_1'
+experiment = 'Maxwell'
 
 # name of animal
-animal_id = 'test_1'
+animal_id = 'mouseid-1119984'
 
 # stimulus type
-stim_type = 'auditory'
+stim_type = 'audiotory'
 
 # The fisheye correction works on the entire frame. If not recording full-frame, put the x and y offset here
-#We recorded FULL-FRAME so no need for offsets!
-# x_offset = 120
-# y_offset = 300
-x_offset = 0
-y_offset = 0
+x_offset: int= 128
+y_offset: int= 0
 
 
 
@@ -51,10 +49,8 @@ y_offset = 0
 --------------   GET BACKGROUND IMAGE    --------------
 '''
 print(colored('\nFetching background', 'green'))
-background_image = get_background(video_file_path, start_frame=10000, avg_over=10)
-# cv2.imshow('Background Image', background_image)
-# cv2.waitKey(0)
-# cv2.destroyAllWindows()
+background_image = get_background(video_file_path, start_frame=100, avg_over=10)
+
 
 
 '''
@@ -72,7 +68,7 @@ registration = register_arena(background_image, fisheye_map_location, x_offset, 
 '''
 --------------   SAVE VIDEO CLIPS    --------------
 '''
-videoname = '{}_{}_{}-{}\''.format(experiment,animal_id,stim_type, round(stim_frame / fps / 60))
+videoname = '{}_{}_{}-{}\''.format(experiment,animal_id,stim_type, round(stim_frame / fps / 40))
 print(colored('Creating behavior clip for ' + videoname, 'green'))
 
 peri_stimulus_video_clip(video_file_path, videoname, save_file_path, stim_frame, window_pre, window_post,

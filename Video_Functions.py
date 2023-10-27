@@ -5,7 +5,8 @@ from termcolor import colored
 from tqdm import tqdm
 import glob
 import os
-import traceback
+
+
 
 # =================================================================================
 #              CREATE MODEL ARENA FOR COMMON COORDINATE BEHAVIOUR
@@ -15,18 +16,18 @@ def calculate_triangle_corners(center, radius):
     angle = 60  # 60 degrees between each corner of the equilateral triangle
 
     corner1 = (
-        int(center[0] + radius * np.cos(np.radians(30))),  
-        int(center[1] + radius * np.sin(np.radians(30)))  
+        int(center[0] + radius * np.cos(np.radians(30))),
+        int(center[1] + radius * np.sin(np.radians(30)))
     )
 
     corner2 = (
-        int(center[0] + radius * np.cos(np.radians(150))),  
-        int(center[1] + radius * np.sin(np.radians(150)))  
+        int(center[0] + radius * np.cos(np.radians(150))),
+        int(center[1] + radius * np.sin(np.radians(150)))
     )
 
     corner3 = (
-        int(center[0] + radius * np.cos(np.radians(270))),  
-        int(center[1] + radius * np.sin(np.radians(270)))  
+        int(center[0] + radius * np.cos(np.radians(270))),
+        int(center[1] + radius * np.sin(np.radians(270)))
     )
 
     return corner1, corner2, corner3
@@ -44,26 +45,25 @@ def model_arena(size, show_arena=True):
     triangle_corners = calculate_triangle_corners(center, radius)
 
     # Draw the flipped equilateral triangle on the arena image with black lines
-    cv2.polylines(arena, [np.array(triangle_corners, np.int32)], isClosed=True, color=0, thickness=2)
+    cv2.polylines(arena, [np.array(triangle_corners, np.int32)], isClosed=True, color=0, thickness=6)
 
     # For registration, convert points to the resized dimensions
-    points_resized = [(pt[0] * size[0] / 1000, pt[1] * size[1] / 1000) for pt in triangle_corners]
-
+    points = [(pt[0] * size[0] / 1000, pt[1] * size[1] / 1000) for pt in triangle_corners]
+    points = np.array(points)
     # Resize the arena to the size of your image
     model_arena = cv2.resize(arena, size)
 
+    '''
+    Customize this section above for your own arena!
+    '''
+
+    # resize the arena to the size of your image
+    model_arena = cv2.resize(model_arena,size)
+
     if show_arena:
-        cv2.imshow('model arena looks like this', model_arena)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        cv2.imshow('model arena looks like this',model_arena)
 
-    return model_arena, points_resized
-
-if __name__ == "__main__":
-    # Change the desired size of the model arena here (e.g., (800, 800))
-    model_arena_size = (800, 800)
-    model_arena(model_arena_size)
-
+    return model_arena, points
 
 
 # =================================================================================
@@ -71,62 +71,54 @@ if __name__ == "__main__":
 # =================================================================================
 def register_frame(frame, registration, x_offset, y_offset, map1, map2):
     '''
-    Register a grayscale image.
+    register a grayscale image
     '''
-    
-    # Check if frame is not empty
-    if frame.shape[0] == 0 or frame.shape[1] == 0:
-        print("Error: Empty frame passed to the function!")
-        return frame
+    if [registration]:
+        # make sure it's 1-D
+        frame_register = frame[:, :, 0]
+        print('this is the frame shape before processing:', frame.shape)
 
-    # Make sure the frame is 1-D (grayscale)
-    frame_register = frame[:, :, 0]
-    
-    # print("Original frame shape:", frame_register.shape)
-    
-    # Do the fisheye correction if applicable
-    if registration and registration[3]:
-        try:
-            # Add borders to the frame for the fisheye correction
-            frame_register = cv2.copyMakeBorder(frame_register, 
-                                                y_offset, 
-                                                int((map1.shape[0] - frame.shape[0]) - y_offset),
-                                                x_offset, 
-                                                int((map1.shape[1] - frame.shape[1]) - x_offset), 
-                                                cv2.BORDER_CONSTANT, value=0)
+        # do the fisheye correction, if applicable
+        if registration[3]:
+            # Add borders to the frame so it matches the fisheye map size
+            frame_register = cv2.copyMakeBorder(frame_register, y_offset, int((map1.shape[0] - frame.shape[0]) - y_offset),
+                                                x_offset, int((map1.shape[1] - frame.shape[1]) - x_offset), cv2.BORDER_CONSTANT, value=0)
             
-            # print("Frame shape after adding borders:", frame_register.shape)
-
-            # Apply the fisheye correction
-            frame_register = cv2.remap(frame_register, map1, map2, interpolation=cv2.INTER_LINEAR, 
-                                        borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+            # Apply fisheye correction
+            frame_register = cv2.remap(frame_register, map1, map2, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
             
-            # print("Frame shape after fisheye correction:", frame_register.shape)
+            # Adjust cropping boundaries based on the provided logic
+            if frame.shape[0] == map1.shape[0]:
+                start_y = 0
+                end_y = map1.shape[0]
+            else:
+                start_y = y_offset
+                end_y = -int((map1.shape[0] - frame.shape[0]) - y_offset)
 
-            # # Crop the frame to get back to its original size
-            # frame_register = frame_register[y_offset:-int((map1.shape[0] - frame.shape[0]) - y_offset),
-            #                                 x_offset:-int((map1.shape[1] - frame.shape[1]) - x_offset)]
+            if frame.shape[1] == map1.shape[1]:
+                start_x = 0
+                end_x = map1.shape[1]
+            else:
+                start_x = x_offset
+                end_x = -int((map1.shape[1] - frame.shape[1]) - x_offset)
 
-            # print("NO MORE cropping:", frame_register.shape)
+            # Apply cropping
+            frame_register = frame_register[start_y:end_y, start_x:end_x]
+            print('Shape of frame_register after processing:', frame_register.shape)
 
-        except Exception as e:
-            print("Error during fisheye correction:", e)
-    
-    # Apply the affine transformation from the registration
-    try:
+        # apply the affine transformation from the registration (different from the fisheye mapping)
         frame = cv2.warpAffine(frame_register, registration[0], frame.shape[0:2])
-    except Exception as e:
-        print("Error during affine transformation:", e)
 
     return frame
+
+
+
+
 
 
 # =================================================================================
 #              GET BACKGROUND IMAGE FROM VIDEO
 # =================================================================================
-"""
- this function processes a video, skips frames to reduce processing load, and averages the frames to generate a background image
-"""
 def get_background(vidpath, start_frame = 1000, avg_over = 100):
     """ extract background: average over frames of video """
 
@@ -134,8 +126,12 @@ def get_background(vidpath, start_frame = 1000, avg_over = 100):
 
     # initialize the video
     width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
+    print('this is the width of the video,',width)
     height = int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    print('this is the height of the video,',height)
     background = np.zeros((height, width))
+    print('this is the shape of the background,',background.shape)
+
     num_frames = int(vid.get(cv2.CAP_PROP_FRAME_COUNT))
     vid.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
@@ -195,8 +191,8 @@ def peri_stimulus_video_clip(vidpath='', videoname='', savepath='', stim_frame=0
     if counter: pre_stim_color = 0; post_stim_color = 255
 
     # setup fisheye correction
-    if registration[3]: maps = np.load(registration[3]); map1 = maps[:, :, 0:2]; map2 = maps[:, :, 2] * 0;print(colored('Fisheye correction is RUNNING!', 'yellow'))
-    else: map1 = None; map2 = None; print("map1 is", map1, "and map2 is", map2);print(colored('Fisheye correction unavailable', 'red'))
+    if registration[3]: maps = np.load(registration[3]); map1 = maps[:, :, 0:2]; map2 = maps[:, :, 2] * 0; print(colored('\nFisheye correction running', 'yellow'))
+    else: map1 = None; map2 = None; print(colored('Fisheye correction unavailable', 'green'))
 
     '''
     RUN SAVING AND ANALYSIS OVER EACH FRAME
@@ -255,7 +251,12 @@ def peri_stimulus_video_clip(vidpath='', videoname='', savepath='', stim_frame=0
 # IMAGE REGISTRATION GUI (the following 4 functions are a bit messy and complicated)
 # ==================================================================================
 def register_arena(background, fisheye_map_location, y_offset, x_offset, show_arena = False):
-
+    #imma hard code this
+    x_offset: int= 128
+    y_offset: int= 0
+    """ extract background: first frame of first video of a session
+    Allow user to specify ROIs on the background image """
+    print('background.shape[::-1]',background.shape[::-1])
     # create model arena and background
     arena, arena_points = model_arena(background.shape[::-1], show_arena)
 
@@ -263,66 +264,62 @@ def register_arena(background, fisheye_map_location, y_offset, x_offset, show_ar
     try:
         maps = np.load(fisheye_map_location)
         map1 = maps[:, :, 0:2]
-        map2 = maps[:, :, 2] * 0
+        map2 = maps[:, :, 2]*0
+        print('we have loaded the map')
 
-        # Printing initial details
-        print("map1.shape[0]:", map1.shape[0])
-        print("map2.shape[0]:", map2.shape[0])
-        print("background.shape[0]:", background.shape[0])
+        print("Shape of the loaded 'maps':", maps.shape)
+        print("Size of the loaded 'maps':", maps.size)
+
+        print("Shape of 'map1':", map1.shape)
+        print("Size of 'map1':", map1.size)
+        print('map1.shape[0]',map1.shape[0])
+        print('map1.shape[1]',map1.shape[1])
+
+        print("Shape of 'map2':", map2.shape)
+        print("Size of 'map2':", map2.size)
+
         print("y_offset:", y_offset)
-        print("top border:", y_offset)
-        print("bottom border:", int((map1.shape[0] - background.shape[0]) - y_offset))
+        print("Calculated bottom:", int((map1.shape[0] - background.shape[0]) - y_offset))
         print("x_offset:", x_offset)
-        print("left border:", x_offset)
-        print("right border:", int((map1.shape[1] - background.shape[1]) - x_offset))
+        print("Calculated right:", int((map1.shape[1] - background.shape[1]) - x_offset))
+        print("Background shape:", background.shape)
+        print("Background dimensions:", background.ndim)
 
-        # Initial check before starting operations
-        print("Starting image operations...")  # <-- Added print
+        print('this is the background shape,' , background.shape)
+        background_copy = cv2.copyMakeBorder(background, y_offset, int((map1.shape[0] - background.shape[0]) - y_offset),
+                                            x_offset, int((map1.shape[1] - background.shape[1]) - x_offset), cv2.BORDER_CONSTANT, value=0)
+        print('this is the background_copy shape,' , background_copy.shape)
 
-        # Border addition
-        print("Before adding borders:", background.shape)
-        background_copy = cv2.copyMakeBorder(
-            background, 
-            y_offset, 
-            int((map1.shape[0] - background.shape[0]) - y_offset),
-            x_offset, 
-            int((map1.shape[1] - background.shape[1]) - x_offset),
-            cv2.BORDER_CONSTANT, 
-            value=0
-        )
-        print(f'After adding borders: {background_copy.shape}')
+        background_copy = cv2.remap(background_copy, map1, map2, interpolation=cv2.INTER_LINEAR,borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        print('this is the background_copy shape after cv2 remap,' , background_copy.shape)
+        
+        # Adjusted cropping logic
+        if background.shape[0] == map1.shape[0]:
+            start_y = 0
+            end_y = map1.shape[0]
+        else:
+            start_y = y_offset
+            end_y = -int((map1.shape[0] - background.shape[0]) - y_offset)
 
-        # Remapping
-        background_copy = cv2.remap(
-            background_copy, 
-            map1, 
-            map2, 
-            interpolation=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT, 
-            borderValue=0
-        )
-        print(f'After remapping: {background_copy.shape}')
+        if background.shape[1] == map1.shape[1]:
+            start_x = 0
+            end_x = map1.shape[1]
+        else:
+            start_x = x_offset
+            end_x = -int((map1.shape[1] - background.shape[1]) - x_offset)
 
-        # # Cropping
-        # y_end_index = -int((map1.shape[0] - background.shape[0]) - y_offset) if y_offset != 0 or (map1.shape[0] - background.shape[0]) != 0 else None
-        # x_end_index = -int((map1.shape[1] - background.shape[1]) - x_offset) if x_offset != 0 or (map1.shape[1] - background.shape[1]) != 0 else None
-        # background_copy = background_copy[y_offset:y_end_index, x_offset:x_end_index]
-
-        # print(f'After cropping: {background_copy.shape}')
-            
-        # Final check
-        assert background_copy.shape[0] > 0 and background_copy.shape[1] > 0, "Invalid image dimensions"
+        background_copy = background_copy[start_y:end_y, start_x:end_x]
+        print('this is the background_copy shape after adjustments,' , background_copy.shape)
 
     except Exception as e:
-        print("Exception occurred!")
-        traceback.print_exc()  # This will print the detailed exception information
+        print('Error:', str(e))
+        print('IDK WHY WE ARE IN THE EXCEPT BLOCK!!')
         background_copy = background.copy()
-        fisheye_map_location = ''
-        print('fisheye correction not available')
+    #     fisheye_map_location = fisheye_map_location
+    #     print(colored('fisheye correction not available','red'))
 
-    # Initialize clicked points
+    # initialize clicked points
     blank_arena = arena.copy()
-
     background_data = [background_copy, np.array(([], [])).T]
     arena_data = [[], np.array(([], [])).T]
     cv2.namedWindow('registered background')
@@ -383,9 +380,8 @@ def register_arena(background, fisheye_map_location, y_offset, x_offset, show_ar
             background_data = [background_copy, np.array(([], [])).T]
             arena_data = [[], np.array(([], [])).T]
 
-            # add 1-2-3 markers to model arena
-            # for i, point in enumerate(arena_points.astype(np.uint32)):
-            for i, point in enumerate(np.array(arena_points).astype(np.uint32)):
+            # add markers to model arena
+            for i, point in enumerate(arena_points.astype(np.uint32)):
                 arena = cv2.circle(arena, (point[0], point[1]), 3, 255, -1)
                 arena = cv2.circle(arena, (point[0], point[1]), 4, 0, 1)
                 cv2.putText(arena, str(i+1), tuple(point), 0, .55, 150, thickness=2)
@@ -396,9 +392,18 @@ def register_arena(background, fisheye_map_location, y_offset, x_offset, show_ar
             # initialize GUI
             cv2.startWindowThread()
             cv2.namedWindow('background')
-            print("Original background shape:", background.shape)
+          
 
-            print("this is background copy SHAPE:", background_copy.shape)
+            print("Type of background_copy:", type(background_copy))
+            print("Shape of background_copy:", background_copy.shape)
+            # print("Minimum pixel value in background_copy:", background_copy.min())
+            print("Maximum pixel value in background_copy:", background_copy.max())
+
+            # Optionally, you can also display the image using imshow to visually inspect it
+            cv2.imshow('background_copy', background_copy)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
             cv2.imshow('background', background_copy)
             cv2.namedWindow('model arena')
             cv2.imshow('model arena', arena)
@@ -419,9 +424,6 @@ def register_arena(background, fisheye_map_location, y_offset, x_offset, show_ar
         M, inliers = cv2.estimateAffine2D(background_data[1], arena_data[1])
         if M is None:
             print("Transformation estimation failed.")
-            # Handle the failure accordingly
-
-
 
 
         # REGISTER BACKGROUND, BE IT WITH LOADED OR CREATED TRANSFORM
@@ -532,33 +534,16 @@ def register_arena(background, fisheye_map_location, y_offset, x_offset, show_ar
     if reset_registration: register_arena(background, fisheye_map_location, y_offset, x_offset, show_arena = show_arena)
 
     return [M, update_transform_data[1], update_transform_data[2], fisheye_map_location]
-    #What it returns is essentially the regisration variable!
 
 # mouse callback function I
-def select_transform_points(event, x, y, flags, data):
+def select_transform_points(event,x,y, flags, data):
     if event == cv2.EVENT_LBUTTONDOWN:
+
         data[0] = cv2.circle(data[0], (x, y), 3, 255, -1)
         data[0] = cv2.circle(data[0], (x, y), 4, 0, 1)
-        clicks = np.reshape(np.array([x, y]), (1, 2))
+
+        clicks = np.reshape(np.array([x, y]),(1,2))
         data[1] = np.concatenate((data[1], clicks))
-
-        # Define the font for displaying the number
-        font = cv2.FONT_HERSHEY_COMPLEX  # Use FONT_HERSHEY_COMPLEX for font size control
-
-        # Define the font scale to control the font size (adjust as needed)
-        font_scale = 1.5  # Adjust the value to make the font larger or smaller
-
-        # Define the font color (in BGR format, here using blue)
-        font_color = (255, 0, 0)
-
-        # Define the font thickness (line thickness of the text)
-        font_thickness = 2
-
-        # Convert the coordinates to integers for the text position
-        text_position = (int(x) + 5, int(y) - 5)
-
-        # Add the number to the image with the specified font size, color, and position
-        cv2.putText(data[0], str(data[1].shape[0]), text_position, font, font_scale, font_color, font_thickness)
 
 # mouse callback function II
 def additional_transform_points(event,x,y, flags, data):
