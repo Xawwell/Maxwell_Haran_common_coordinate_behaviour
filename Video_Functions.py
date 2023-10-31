@@ -5,6 +5,7 @@ from termcolor import colored
 from tqdm import tqdm
 import glob
 import os
+import subprocess
 
 
 
@@ -76,7 +77,7 @@ def register_frame(frame, registration, x_offset, y_offset, map1, map2):
     if [registration]:
         # make sure it's 1-D
         frame_register = frame[:, :, 0]
-        print('this is the frame shape before processing:', frame.shape)
+       # print('this is the frame shape before processing:', frame.shape)
 
         # do the fisheye correction, if applicable
         if registration[3]:
@@ -104,7 +105,7 @@ def register_frame(frame, registration, x_offset, y_offset, map1, map2):
 
             # Apply cropping
             frame_register = frame_register[start_y:end_y, start_x:end_x]
-            print('Shape of frame_register after processing:', frame_register.shape)
+           # print('Shape of frame_register after processing:', frame_register.shape)
 
         # apply the affine transformation from the registration (different from the fisheye mapping)
         frame = cv2.warpAffine(frame_register, registration[0], frame.shape[0:2])
@@ -157,7 +158,7 @@ def get_background(vidpath, start_frame = 1000, avg_over = 100):
     vid.release()
 
     return background
-
+    
 
 # =================================================================================
 #              GENERATE PERI-STIMULUS VIDEO CLIPS and FLIGHT IMAGE
@@ -225,7 +226,7 @@ def peri_stimulus_video_clip(vidpath='', videoname='', savepath='', stim_frame=0
                 frame_time = str(round(.2 * round(frame_time / .2), 1)) + '0' * (abs(frame_time) < 10)
                 cv2.putText(frame, sign + str(frame_time) + 's', (width - 110, height + 10), 0, 1, 120, thickness=2)
 
-            # display and save the frame
+            # display and save the frame (could comment it out for better)
             cv2.imshow(videoname, frame)
             if save_clip: video_clip.write(frame)
 
@@ -245,6 +246,124 @@ def peri_stimulus_video_clip(vidpath='', videoname='', savepath='', stim_frame=0
     vid.release()
     if save_clip: video_clip.release()
 
+
+# ==================================================================================
+# Generate lossless video, by having the same bitrate across input and output videos
+# ==================================================================================
+
+def get_video_bitrate(input_path):
+    try:
+        result = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=bit_rate', '-of', 'default=noprint_wrappers=1:nokey=1', input_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        bitrate = int(result.stdout.decode().strip())
+        
+        # Convert from bps to kbps, if the bitrate seems too large
+        if bitrate > 10000: 
+            bitrate = bitrate // 1000 
+        
+        return bitrate
+    except Exception as e:
+        print("Error while getting video bitrate:", e)
+        return None
+
+def save_with_ffmpeg(src_path, dest_path, bitrate_kbps):
+    cmd = [
+    'ffmpeg',
+    '-analyzeduration', '2147483647',
+    '-probesize', '2147483647',
+    '-i', src_path,
+    '-c:v', 'libx264',
+    '-b:v', f"{bitrate_kbps}k",
+    dest_path
+    ]
+
+    subprocess.run(cmd)
+
+from tqdm import tqdm
+from termcolor import colored
+
+def entire_video_clip(vidpath='', videoname='', savepath='', registration=0, x_offset=0, y_offset=0, fps=False,
+                      save_clip=False, border_size=20):
+
+    # Open the video file
+    vid = cv2.VideoCapture(vidpath)
+    if not vid.isOpened():
+        print("Error: Couldn't open the video file.")
+        return
+
+    # Generate unique temporary filenames based on the input video's name
+    base_name = os.path.basename(vidpath).split('.')[0]  # Extracts name without extension
+    temp_output_filename = base_name + '_output.mp4'
+    temp_reencoded_filename = base_name + '_temp_reencoded.mp4'
+
+    if not fps:
+        fps = vid.get(cv2.CAP_PROP_FPS)
+    
+    width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    input_bitrate = get_video_bitrate(vidpath)
+    print('this is the input bitrate,', input_bitrate)
+
+    # setup fisheye correction
+    if registration[3]:
+        maps = np.load(registration[3])
+        map1 = maps[:, :, 0:2]
+        map2 = maps[:, :, 2] * 0
+        print(colored('\nFisheye correction running', 'yellow'))
+    else:
+        map1 = None
+        map2 = None
+        print(colored('Fisheye correction unavailable', 'green'))
+
+    # Use the H264 codec for the temporary video
+    fourcc = cv2.VideoWriter_fourcc(*'X264')
+    out = cv2.VideoWriter(temp_output_filename, fourcc, 40.0, (1024, 1024))
+
+    # Generate a unique filename for the temporary video
+    temp_filename = os.path.basename(vidpath).replace('.mp4', '_temp_uncompressed.mp4')
+    temp_path = os.path.join(savepath, temp_filename)
+
+    video_clip = cv2.VideoWriter(temp_path, fourcc, fps, (width, height), isColor=True)
+
+    total_frames = int(vid.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    # Use tqdm for the progress bar
+    for _ in tqdm(range(total_frames), desc="Processing", ncols=100):
+        ret, frame = vid.read()
+        if ret:
+            frame_num = vid.get(cv2.CAP_PROP_POS_FRAMES)
+            # Apply registration
+            frame = register_frame(frame, registration, x_offset, y_offset, map1, map2)
+            # cv2.imshow(videoname, frame)
+            if save_clip:
+                video_clip.write(frame)
+            if (cv2.waitKey(1) & 0xFF == ord('q')) or frame_num >= total_frames:
+                break
+        else:
+            print('Problem with movie playback')
+            cv2.waitKey(1)
+            break
+
+    vid.release()
+    if save_clip:
+        video_clip.release()
+
+        # Re-encode the temporary video to ensure it's in a clean state
+        reencode_cmd = [
+            'ffmpeg',
+            '-i', temp_path,
+            '-c:v', 'libx264',
+            '-crf', '51',  # Adjust the quality as needed, 0 is lossless, 23 is default, 51 is worst
+            temp_reencoded_filename
+        ]
+        subprocess.run(reencode_cmd)
+    
+        if input_bitrate:
+            save_with_ffmpeg(temp_path, os.path.join(savepath, videoname + '.mp4'), input_bitrate)
+            os.remove(temp_path)
+            os.remove(temp_reencoded_filename)
+
+# Your helper functions remain unchanged.
 
 
 # ==================================================================================
